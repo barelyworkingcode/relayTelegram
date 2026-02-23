@@ -258,11 +258,17 @@ func (b *Bot) handleClear(c tele.Context) error {
 	cid := chatID(c)
 	tid := threadID(c)
 
-	if err := b.mappings.ClearSession(cid, tid); err != nil {
+	sm := b.mappings.GetSession(cid, tid)
+	if sm == nil {
+		return c.Reply("No active session to clear.")
+	}
+
+	result, err := b.eve.SendMessage(sm.EveSessionID, "/clear")
+	if err != nil {
 		return c.Reply(fmt.Sprintf("Failed to clear session: %v", err))
 	}
 
-	return c.Reply("Session cleared. Next message will start a new conversation.")
+	return c.Reply(result.Response)
 }
 
 func (b *Bot) handleMessage(c tele.Context) error {
