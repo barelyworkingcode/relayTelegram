@@ -10,14 +10,16 @@ import (
 	"time"
 )
 
-type EveClient struct {
+type LLMClient struct {
 	baseURL string
 	client  *http.Client
 }
 
 type CreateSessionRequest struct {
-	ProjectID string `json:"projectId"`
-	Name      string `json:"name,omitempty"`
+	ProjectID    string `json:"projectId"`
+	Name         string `json:"name,omitempty"`
+	CallbackType string `json:"callbackType,omitempty"`
+	Model        string `json:"model,omitempty"`
 }
 
 type CreateSessionResponse struct {
@@ -36,7 +38,7 @@ type SendMessageResponse struct {
 	Error    string          `json:"error,omitempty"`
 }
 
-type EveProject struct {
+type Project struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Path     string `json:"path"`
@@ -44,45 +46,49 @@ type EveProject struct {
 	Disabled bool   `json:"disabled"`
 }
 
-func NewEveClient(baseURL string) *EveClient {
-	return &EveClient{
+func NewLLMClient(baseURL string) *LLMClient {
+	return &LLMClient{
 		baseURL: baseURL,
 		client: &http.Client{
-			Timeout: 6 * time.Minute, // Longer than Eve's 5min timeout
+			Timeout: 6 * time.Minute,
 		},
 	}
 }
 
-func (e *EveClient) ListProjects() ([]EveProject, error) {
+func (e *LLMClient) ListProjects() ([]Project, error) {
 	resp, err := e.client.Get(e.baseURL + "/api/projects")
 	if err != nil {
-		return nil, fmt.Errorf("failed to reach Eve: %w", err)
+		return nil, fmt.Errorf("failed to reach relayLLM: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Eve returned %d: %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("relayLLM returned %d: %s", resp.StatusCode, body)
 	}
 
-	var projects []EveProject
+	var projects []Project
 	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
 		return nil, fmt.Errorf("failed to decode projects: %w", err)
 	}
 	return projects, nil
 }
 
-func (e *EveClient) CreateSession(projectID, name string) (*CreateSessionResponse, error) {
-	body, _ := json.Marshal(CreateSessionRequest{ProjectID: projectID, Name: name})
+func (e *LLMClient) CreateSession(projectID, name, callbackType string) (*CreateSessionResponse, error) {
+	body, _ := json.Marshal(CreateSessionRequest{
+		ProjectID:    projectID,
+		Name:         name,
+		CallbackType: callbackType,
+	})
 	resp, err := e.client.Post(e.baseURL+"/api/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to reach Eve: %w", err)
+		return nil, fmt.Errorf("failed to reach relayLLM: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Eve returned %d: %s", resp.StatusCode, respBody)
+		return nil, fmt.Errorf("relayLLM returned %d: %s", resp.StatusCode, respBody)
 	}
 
 	var result CreateSessionResponse
@@ -92,7 +98,7 @@ func (e *EveClient) CreateSession(projectID, name string) (*CreateSessionRespons
 	return &result, nil
 }
 
-func (e *EveClient) SendMessage(sessionID, text string) (*SendMessageResponse, error) {
+func (e *LLMClient) SendMessage(sessionID, text string) (*SendMessageResponse, error) {
 	body, _ := json.Marshal(SendMessageRequest{Text: text})
 	resp, err := e.client.Post(
 		e.baseURL+"/api/sessions/"+url.PathEscape(sessionID)+"/message",
@@ -100,7 +106,7 @@ func (e *EveClient) SendMessage(sessionID, text string) (*SendMessageResponse, e
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to reach Eve: %w", err)
+		return nil, fmt.Errorf("failed to reach relayLLM: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -124,7 +130,7 @@ func (e *EveClient) SendMessage(sessionID, text string) (*SendMessageResponse, e
 	if resp.StatusCode != 200 {
 		errMsg := result.Error
 		if errMsg == "" {
-			errMsg = fmt.Sprintf("Eve returned %d", resp.StatusCode)
+			errMsg = fmt.Sprintf("relayLLM returned %d", resp.StatusCode)
 		}
 		return nil, fmt.Errorf("%s", errMsg)
 	}

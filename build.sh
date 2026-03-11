@@ -17,5 +17,5 @@ else
   echo "Registered with Relay. Open Relay settings and set these environment variables:"
   echo "  TELEGRAM_BOT_TOKEN=<your bot token from BotFather>"
   echo "  TELEGRAM_ALLOWED_USER_ID=<your numeric Telegram user ID>"
-  echo "  EVE_URL=http://localhost:3000"
+  echo "  RELAY_LLM_URL=http://localhost:3001"
 fi

@@ -9,8 +9,8 @@ import (
 )
 
 type SessionMapping struct {
-	EveSessionID string    `json:"eveSessionId"`
-	LastActive   time.Time `json:"lastActive"`
+	SessionID  string    `json:"sessionId"`
+	LastActive time.Time `json:"lastActive"`
 }
 
 type ChatMapping struct {
@@ -133,7 +133,7 @@ func (m *Mappings) GetSession(chatID, threadID string) *SessionMapping {
 	return &s
 }
 
-func (m *Mappings) SetSession(chatID, threadID, eveSessionID string) error {
+func (m *Mappings) SetSession(chatID, threadID, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -142,8 +142,8 @@ func (m *Mappings) SetSession(chatID, threadID, eveSessionID string) error {
 		return nil
 	}
 	cm.Sessions[threadID] = SessionMapping{
-		EveSessionID: eveSessionID,
-		LastActive:   time.Now(),
+		SessionID:  sessionID,
+		LastActive: time.Now(),
 	}
 	return m.save()
 }

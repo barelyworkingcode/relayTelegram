@@ -14,12 +14,12 @@ import (
 type Bot struct {
 	bot         *tele.Bot
 	cfg         Config
-	eve         *EveClient
+	llm         *LLMClient
 	mappings    *Mappings
 	botCommands map[string]bool
 }
 
-func NewBot(cfg Config, eve *EveClient, mappings *Mappings) (*Bot, error) {
+func NewBot(cfg Config, llm *LLMClient, mappings *Mappings) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  cfg.BotToken,
 		Poller: &tele.LongPoller{Timeout: 30 * time.Second},
@@ -33,7 +33,7 @@ func NewBot(cfg Config, eve *EveClient, mappings *Mappings) (*Bot, error) {
 	bot := &Bot{
 		bot:      b,
 		cfg:      cfg,
-		eve:      eve,
+		llm:      llm,
 		mappings: mappings,
 	}
 
@@ -54,7 +54,7 @@ func (b *Bot) isAllowed(c tele.Context) bool {
 }
 
 func (b *Bot) registerHandlers() {
-	// Bot-owned commands. Everything else starting with / gets forwarded to Eve.
+	// Bot-owned commands. Everything else starting with / gets forwarded to relayLLM.
 	b.botCommands = map[string]bool{
 		"/start":    true,
 		"/link":     true,
@@ -74,7 +74,7 @@ func (b *Bot) registerHandlers() {
 	b.bot.Handle("/clear", b.authGuard(b.handleClear))
 	b.bot.Handle(tele.OnText, b.authGuard(b.handleMessage))
 
-	// Middleware: intercept /commands not in botCommands and forward to Eve via handleMessage.
+	// Middleware: intercept /commands not in botCommands and forward to relayLLM via handleMessage.
 	// Runs before registered handlers, so unrecognized commands (e.g. /compact, /model) never
 	// reach telebot's "not found" path. Plain text and known commands fall through to next().
 	b.bot.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
@@ -119,35 +119,35 @@ func (b *Bot) handleStartRaw(c tele.Context) error {
 	if !b.isAllowed(c) {
 		return c.Reply("New phone, who dis?")
 	}
-	_, err := b.eve.ListProjects()
+	_, err := b.llm.ListProjects()
 	if err != nil {
-		log.Printf("Eve health check failed: %v", err)
-		return c.Reply("Online, but Eve is unreachable.")
+		log.Printf("relayLLM health check failed: %v", err)
+		return c.Reply("Online, but relayLLM is unreachable.")
 	}
-	return c.Reply("Online. Eve is connected.")
+	return c.Reply("Online. relayLLM is connected.")
 }
 
 func (b *Bot) handleHelp(c tele.Context) error {
 	err := c.Reply(`Bot commands:
 /start - Health check
 /help - This message
-/link <name> - Link chat to an Eve project
+/link <name> - Link chat to a project
 /unlink - Remove link
-/projects - List Eve projects
+/projects - List projects
 /status - Show current mapping
 /clear - Start new session
 
-Other /commands are forwarded to Eve.`)
+Other /commands are forwarded to relayLLM.`)
 	if err != nil {
 		return err
 	}
 
-	// Forward /help to Eve if there's an active session
+	// Forward /help to relayLLM if there's an active session
 	cid := chatID(c)
 	tid := threadID(c)
 	sm := b.mappings.GetSession(cid, tid)
 	if sm != nil {
-		result, err := b.eve.SendMessage(sm.EveSessionID, "/help")
+		result, err := b.llm.SendMessage(sm.SessionID, "/help")
 		if err == nil && result.Response != "" {
 			return c.Reply(result.Response)
 		}
@@ -164,14 +164,14 @@ func (b *Bot) handleLink(c tele.Context) error {
 
 	query := strings.Join(args, " ")
 
-	projects, err := b.eve.ListProjects()
+	projects, err := b.llm.ListProjects()
 	if err != nil {
-		return c.Reply(fmt.Sprintf("Failed to reach Eve: %v", err))
+		return c.Reply(fmt.Sprintf("Failed to reach relayLLM: %v", err))
 	}
 
 	// Fuzzy match: case-insensitive substring
-	var match *EveProject
-	var matches []EveProject
+	var match *Project
+	var matches []Project
 	queryLower := strings.ToLower(query)
 	for i, p := range projects {
 		if p.Disabled {
@@ -222,9 +222,9 @@ func (b *Bot) handleUnlink(c tele.Context) error {
 }
 
 func (b *Bot) handleProjects(c tele.Context) error {
-	projects, err := b.eve.ListProjects()
+	projects, err := b.llm.ListProjects()
 	if err != nil {
-		return c.Reply(fmt.Sprintf("Failed to reach Eve: %v", err))
+		return c.Reply(fmt.Sprintf("Failed to reach relayLLM: %v", err))
 	}
 
 	if len(projects) == 0 {
@@ -263,7 +263,7 @@ func (b *Bot) handleClear(c tele.Context) error {
 		return c.Reply("No active session to clear.")
 	}
 
-	result, err := b.eve.SendMessage(sm.EveSessionID, "/clear")
+	result, err := b.llm.SendMessage(sm.SessionID, "/clear")
 	if err != nil {
 		return c.Reply(fmt.Sprintf("Failed to clear session: %v", err))
 	}
@@ -289,7 +289,7 @@ func (b *Bot) handleMessage(c tele.Context) error {
 			sessionName = fmt.Sprintf("Telegram thread %s", tid)
 		}
 
-		result, err := b.eve.CreateSession(cm.ProjectID, sessionName)
+		result, err := b.llm.CreateSession(cm.ProjectID, sessionName, "policy")
 		if err != nil {
 			return c.Reply(fmt.Sprintf("Failed to create session: %v", err))
 		}
@@ -298,7 +298,7 @@ func (b *Bot) handleMessage(c tele.Context) error {
 			log.Printf("Failed to save session mapping: %v", err)
 		}
 
-		sm = &SessionMapping{EveSessionID: result.SessionID}
+		sm = &SessionMapping{SessionID: result.SessionID}
 	}
 
 	// Send typing indicator, repeat every 5s
@@ -317,8 +317,8 @@ func (b *Bot) handleMessage(c tele.Context) error {
 		}
 	}()
 
-	// Send message to Eve
-	result, err := b.eve.SendMessage(sm.EveSessionID, text)
+	// Send message to relayLLM
+	result, err := b.llm.SendMessage(sm.SessionID, text)
 	close(done)
 
 	if err != nil {
@@ -331,7 +331,7 @@ func (b *Bot) handleMessage(c tele.Context) error {
 	}
 
 	// Update last active
-	_ = b.mappings.SetSession(cid, tid, sm.EveSessionID)
+	_ = b.mappings.SetSession(cid, tid, sm.SessionID)
 
 	// Send response, splitting at Telegram's 4096 char limit
 	return b.sendLongMessage(c, result.Response)

@@ -1,29 +1,29 @@
 # Architecture
 
-Telegram bot that bridges messages to Eve LLM sessions over HTTP.
+Telegram bot that bridges messages to relayLLM sessions over HTTP.
 
 ```
-Telegram User ──> Bot (long poll) ──> Eve HTTP API ──> LLM
-                                                        │
-Telegram User <── Bot (reply)     <── Eve response  <───┘
+Telegram User ──> Bot (long poll) ──> relayLLM HTTP API ──> LLM
+                                                              │
+Telegram User <── Bot (reply)     <── relayLLM response  <───┘
 ```
 
-## Eve API Endpoints
+## relayLLM API Endpoints
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
 | `GET` | `/api/projects` | - | `[{id, name, path, model, disabled}]` |
-| `POST` | `/api/sessions` | `{projectId, name?}` | `{sessionId, projectId, model}` |
+| `POST` | `/api/sessions` | `{projectId, name?, callbackType?}` | `{sessionId, projectId, model}` |
 | `POST` | `/api/sessions/:id/message` | `{text}` | `{response, stats, error?}` |
 
 ## Message Flow
 
 1. Telegram long poll receives message
 2. Auth guard checks sender ID against `TELEGRAM_ALLOWED_USER_ID`
-3. Lookup chat mapping to find linked Eve project
-4. Lookup session mapping for chat+thread; if none, `POST /api/sessions` to create one
+3. Lookup chat mapping to find linked project
+4. Lookup session mapping for chat+thread; if none, `POST /api/sessions` to create one (with `callbackType: "policy"`)
 5. `POST /api/sessions/:id/message` with the user's text
-6. **Block** waiting for the full HTTP response (Eve completes entire LLM generation before responding)
+6. **Block** waiting for the full HTTP response (relayLLM completes entire LLM generation before responding)
 7. Split response at 4096-char Telegram limit (paragraph boundaries preferred) and reply
 
 This is a synchronous, blocking transaction -- no streaming, callbacks, or async polling. One HTTP request in, one complete response out, then reply to Telegram. A background goroutine sends Telegram typing indicators every 5 seconds while the call blocks so the user sees activity in their chat.
@@ -33,19 +33,19 @@ This is a synchronous, blocking transaction -- no streaming, callbacks, or async
 - **Created** on first message per chat+thread combination via `POST /api/sessions`
 - **Forum topics** get separate sessions (keyed by thread ID); regular chats use a single `"default"` session
 - **Session names**: forum topics are named `"Telegram thread <id>"`; default sessions have no name
-- **`/clear`** forwards to Eve (resets Eve-side context); local mapping is preserved
-- **Session expiry**: if Eve returns an error containing `"not found"`, the local mapping is cleared and the user is prompted to resend
+- **`/clear`** forwards to relayLLM (resets server-side context); local mapping is preserved
+- **Session expiry**: if relayLLM returns an error containing `"not found"`, the local mapping is cleared and the user is prompted to resend
 
 ## Command Routing
 
-**Local only** (handled by bot, never reach Eve):
+**Local only** (handled by bot, never reach relayLLM):
 `/start`, `/link`, `/unlink`, `/projects`, `/status`
 
-**Forwarded to Eve**:
+**Forwarded to relayLLM**:
 `/clear`, `/compact`, `/model`, and any unrecognized `/command`
 
 **Hybrid**:
-`/help` -- replies with bot command list locally, then forwards `/help` to Eve if an active session exists (shows Eve's session commands)
+`/help` -- replies with bot command list locally, then forwards `/help` to relayLLM if an active session exists (shows session commands)
 
 ## Error Handling
 
@@ -54,9 +54,9 @@ This is a synchronous, blocking transaction -- no streaming, callbacks, or async
 | Session busy | 409 | Reply: "session is busy processing another message" |
 | Timeout | 504 | Reply: "response timed out" |
 | Session expired | any (error contains "not found") | Clear local mapping, prompt user to resend |
-| Eve unreachable | - | Reply with connection error |
+| relayLLM unreachable | - | Reply with connection error |
 
-Client timeout is 6 minutes (exceeds Eve's 5-minute timeout so Eve always responds first).
+Client timeout is 6 minutes (exceeds relayLLM's 5-minute timeout so relayLLM always responds first).
 
 ## Mapping Persistence
 
@@ -70,7 +70,7 @@ Stored at `~/.config/relay/telegram-mappings.json`:
       "projectName": "...",
       "sessions": {
         "<threadId|default>": {
-          "eveSessionId": "...",
+          "sessionId": "...",
           "lastActive": "2025-01-01T00:00:00Z"
         }
       }

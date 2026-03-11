@@ -12,7 +12,7 @@ import (
 type Config struct {
 	BotToken      string
 	AllowedUserID int64
-	EveURL        string
+	LLMURL        string
 }
 
 func loadConfig() (Config, error) {
@@ -30,15 +30,15 @@ func loadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("TELEGRAM_ALLOWED_USER_ID must be a number: %w", err)
 	}
 
-	eveURL := os.Getenv("EVE_URL")
-	if eveURL == "" {
-		eveURL = "http://localhost:3000"
+	llmURL := os.Getenv("RELAY_LLM_URL")
+	if llmURL == "" {
+		llmURL = "http://localhost:3001"
 	}
 
 	return Config{
 		BotToken:      token,
 		AllowedUserID: uid,
-		EveURL:        eveURL,
+		LLMURL:        llmURL,
 	}, nil
 }
 
@@ -53,9 +53,9 @@ func main() {
 		log.Fatalf("Failed to load mappings: %v", err)
 	}
 
-	eve := NewEveClient(cfg.EveURL)
+	llm := NewLLMClient(cfg.LLMURL)
 
-	bot, err := NewBot(cfg, eve, mappings)
+	bot, err := NewBot(cfg, llm, mappings)
 	if err != nil {
 		log.Fatalf("Failed to create bot: %v", err)
 	}
@@ -70,6 +70,6 @@ func main() {
 		bot.Stop()
 	}()
 
-	log.Printf("Starting Telegram bot (allowed user: %d, Eve: %s)", cfg.AllowedUserID, cfg.EveURL)
+	log.Printf("Starting Telegram bot (allowed user: %d, relayLLM: %s)", cfg.AllowedUserID, cfg.LLMURL)
 	bot.Start()
 }
