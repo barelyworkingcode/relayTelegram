@@ -62,6 +62,13 @@ In a regular chat (no topics), all messages share a single session.
 
 Any other `/command` (e.g. `/compact`, `/model`, `/cost`) is forwarded to relayLLM as a session command.
 
+## Ecosystem
+
+relayTelegram is part of the Relay ecosystem. It requires [relayLLM](https://github.com/barelyworkingcode/relayLLM) for LLM sessions.
+
+- **[Relay](https://github.com/barelyworkingcode/relay)** -- MCP orchestrator. Manages relayTelegram as a background service.
+- **[relayLLM](https://github.com/barelyworkingcode/relayLLM)** -- LLM engine. Provides the sessions and message API.
+
 ## Attribution
 
 Telegram Bot API client: [telebot](https://gopkg.in/telebot.v4) by [tucnak](https://github.com/tucnak/telebot), MIT License.

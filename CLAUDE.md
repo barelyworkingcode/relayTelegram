@@ -33,3 +33,10 @@ Telegram chats map to relayLLM projects (`/link`), forum topics map to sessions 
 
 - `gopkg.in/telebot.v4` (telebot by tucnak) - Telegram Bot API
 - relayLLM running on RELAY_LLM_URL with `/api/sessions` and `/api/sessions/:id/message` endpoints
+
+## Ecosystem
+
+relayTelegram is part of the Relay ecosystem. It bridges Telegram messages to relayLLM sessions.
+
+- `../relay/` -- MCP orchestrator. Manages relayTelegram as a background service.
+- `../relayLLM/` -- LLM engine. Provides sessions and message API that relayTelegram calls.
